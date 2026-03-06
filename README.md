@@ -21,7 +21,7 @@
       │  WebSocket (ws://)
       ▼
 service-agent（容器）
-      │  /var/run/docker.sock + /opt/orchidea/projects（持久化）
+      │  /var/run/docker.sock + /opt/projects（持久化）
       ▼
 宿主机 Docker 引擎
 ```
@@ -45,22 +45,28 @@ service-agent（容器）
 
 可通过环境变量或 `.env` 文件设置，下文示例以 `docker-compose.yml` 为例。设置值后重启容器。
 
-| 变量                 | 说明                         | 示例                               |
-| -------------------- | ---------------------------- | ---------------------------------- |
-| `WS_URL`             | 控制台 WebSocket 地址        | `ws://192.168.1.10:13000/ws/agent` |
-| `AGENT_ID`           | Agent 唯一标识               | `prod-server-01`                   |
-| `TOKEN`              | 认证令牌，需与服务端一致     | `your-secret-token`                |
-| `RECONNECT_DELAY`    | 断线重连间隔（秒），默认 `5` | `5`                                |
-| `HEARTBEAT_INTERVAL` | 心跳间隔（秒），默认 `30`    | `30`                               |
+| 变量                  | 说明                         | 示例                                                 |
+| --------------------- | ---------------------------- | ---------------------------------------------------- |
+| `WS_URL`              | 控制台 WebSocket 地址        | `ws://192.168.1.10:13000/ws/agent`                   |
+| `AGENT_ID`            | Agent 唯一标识               | `prod-server-01`                                     |
+| `TOKEN`               | 认证令牌，需与服务端一致     | `your-secret-token`                                  |
+| `RECONNECT_DELAY`     | 断线重连间隔（秒），默认 `5` | `5`                                                  |
+| `HEARTBEAT_INTERVAL`  | 心跳间隔（秒），默认 `30`    | `30`                                                 |
+| `HEALTH_PORT`         | 容器内健康检查端口           | `18081`                                              |
+| `SERVICE_AGENT_IMAGE` | 运行时拉取的镜像地址         | `registry.example.com/orchidea/service-agent:latest` |
 
 ### 2. 部署
 
 ```bash
-# 构建并后台启动
-docker compose up -d --build
+# 拉取镜像并后台启动
+docker compose pull
+docker compose up -d
 
 # 查看实时日志
 docker compose logs -f
+
+# 查看容器健康状态
+docker compose ps
 ```
 
 ### 3. 验证连接
@@ -72,6 +78,7 @@ INFO - Docker client initialized successfully.
 INFO - Using 'docker compose' (v2 plugin).
 INFO - Connecting to ws://...
 INFO - Connected to ServiceHub!
+INFO - Health server listening on http://0.0.0.0:18081/health
 ```
 
 ## WebSocket 消息协议
@@ -134,7 +141,7 @@ INFO - Connected to ServiceHub!
 Agent 会在 `PROJECTS_DIR` 下按项目名组织 compose 文件：
 
 ```
-/opt/orchidea/projects/
+/opt/projects/
 ├── my-app/
 │   └── docker-compose.yml
 ├── another-project/
@@ -171,6 +178,13 @@ python agent.py
 ```
 
 > **注意**：本地运行时需确保当前环境可访问 Docker socket（`/var/run/docker.sock`）。
+
+## 容器部署说明
+
+- `docker-compose.yml` 已改为只拉取镜像，不再本地 `build`
+- 启动前需要先把 `.env.example` 复制为 `.env`，并填好 `SERVICE_AGENT_IMAGE`、`WS_URL`、`TOKEN`
+- 健康检查会访问容器内的 `http://127.0.0.1:${HEALTH_PORT}/health`
+- 宿主机需要正确挂载 Docker Socket 和业务 compose 根目录，否则 Agent 虽然能启动，但无法执行 compose 指令
 
 ## 安全建议
 

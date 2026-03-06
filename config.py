@@ -11,6 +11,8 @@ AGENT_ID           = os.getenv('AGENT_ID', socket.gethostname())
 TOKEN              = os.getenv('TOKEN', '')
 RECONNECT_DELAY    = int(os.getenv('RECONNECT_DELAY', '5'))
 HEARTBEAT_INTERVAL = int(os.getenv('HEARTBEAT_INTERVAL', '30'))
+HEALTH_HOST        = os.getenv('HEALTH_HOST', '0.0.0.0')
+HEALTH_PORT        = int(os.getenv('HEALTH_PORT', '18081'))
 
 logging.basicConfig(
     level=logging.INFO,

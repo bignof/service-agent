@@ -11,15 +11,42 @@ from core.handlers import dispatch, send_message
 logger = logging.getLogger(__name__)
 
 _heartbeat_thread = None
+_state = {
+    'connected': False,
+    'last_connect_ts': None,
+    'last_disconnect_ts': None,
+    'last_heartbeat_ts': None,
+    'last_message_ts': None,
+    'last_error': None,
+}
+_state_lock = threading.Lock()
+
+
+def _update_state(**kwargs):
+    with _state_lock:
+        _state.update(kwargs)
+
+
+def get_connection_state():
+    with _state_lock:
+        return dict(_state)
 
 
 def _on_open(ws):
     logger.info("Connected to ServiceHub!")
+    now = time.time()
+    _update_state(
+        connected=True,
+        last_connect_ts=now,
+        last_message_ts=now,
+        last_error=None,
+    )
     _start_heartbeat(ws)
 
 
 def _on_message(ws, message):
     try:
+        _update_state(last_message_ts=time.time())
         data = json.loads(message)
         msg_type = data.get('type')
         if msg_type == 'command':
@@ -32,10 +59,12 @@ def _on_message(ws, message):
 
 
 def _on_error(ws, error):
+    _update_state(last_error=str(error))
     logger.error(f"WebSocket error: {error}")
 
 
 def _on_close(ws, close_status_code, close_msg):
+    _update_state(connected=False, last_disconnect_ts=time.time())
     logger.warning(f"Connection closed: {close_status_code} {close_msg}")
 
 
@@ -46,6 +75,7 @@ def _start_heartbeat(ws):
         while ws and ws.keep_running:
             time.sleep(HEARTBEAT_INTERVAL)
             if ws and ws.keep_running:
+                _update_state(last_heartbeat_ts=time.time())
                 send_message(ws, {'type': 'heartbeat', 'ts': time.time()})
 
     _heartbeat_thread = threading.Thread(target=_beat, daemon=True)

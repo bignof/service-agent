@@ -1,4 +1,8 @@
 .env
+.venv/
+.vscode/
 __pycache__/
 *.pyc
+.pytest_cache/
+.mypy_cache/
 SERVICE_HUB_INTEGRATION.md
