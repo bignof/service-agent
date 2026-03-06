@@ -8,10 +8,8 @@
 1. 内网服务器已通过 docker compose 部署好业务容器（compose 文件已在服务器上）
 2. 在该服务器上运行 service-agent
 3. 远程平台下发指令：
-   - update  →  docker-compose pull + down + up -d（更新镜像并重新部署）
-   - restart →  docker-compose restart（重启容器，不重建）
-   - down    →  docker-compose down（停止并移除容器）
-   - up      →  docker-compose up -d（启动）
+  - update  →  修改 compose 中匹配服务的 image，然后执行 pull + down + up -d
+  - restart →  docker compose restart（重启容器，不重建）
 ```
 
 ## 架构
@@ -29,10 +27,10 @@ service-agent（容器）
 ## 功能
 
 - 通过 WebSocket 与控制台保持长连接，自动断线重连
-- compose 文件**持久化存储**在宿主机目录，Agent 重启后项目数据不丢失
-- 支持 `update`（pull+down+up）/ `up` / `down` / `restart` / `stop` 等操作
+- 支持 `update` 和 `restart` 两类平台命令
 - 自动检测宿主机 `docker compose`（v2 插件）或 `docker-compose`（v1 standalone），优先使用 v2
 - 命令在独立线程中执行，不阻塞心跳和其他消息处理
+- 提供独立 HTTP 健康检查端点，暴露当前 WebSocket 连接状态
 
 ## 快速开始
 
@@ -74,7 +72,6 @@ docker compose ps
 日志中出现以下内容代表成功连接：
 
 ```
-INFO - Docker client initialized successfully.
 INFO - Using 'docker compose' (v2 plugin).
 INFO - Connecting to ws://...
 INFO - Connected to ServiceHub!
@@ -136,29 +133,35 @@ INFO - Health server listening on http://0.0.0.0:18081/health
 { "type": "result", "requestId": "req-123", "status": "failed", "error": "..." }
 ```
 
-## 持久化目录结构
+## 健康检查
 
-Agent 会在 `PROJECTS_DIR` 下按项目名组织 compose 文件：
+Agent 容器内会启动一个轻量 HTTP 服务：
 
-```
-/opt/projects/
-├── my-app/
-│   └── docker-compose.yml
-├── another-project/
-│   └── docker-compose.yml
-└── ...
+```http
+GET /health
 ```
 
-首次下发 `composeContent` 时自动创建，后续操作直接读取已保存的文件。
+返回内容包含：
+
+- `status`: `ok` 或 `degraded`
+- `agentId`: 当前 agent 标识
+- `connected`: 当前是否仍与 service-hub 保持连接
+- `lastConnectTs` / `lastDisconnectTs` / `lastHeartbeatTs` / `lastMessageTs`
+- `lastError`: 最近一次连接错误
 
 ## 项目结构
 
 ```
 service-agent/
 ├── agent.py            # Agent 主程序
+├── config.py           # 环境变量和运行参数
+├── core/               # WebSocket、命令处理、健康检查
+├── services/           # Compose 操作封装
 ├── requirements.txt    # Python 依赖
+├── requirements-dev.txt
 ├── Dockerfile          # 镜像构建文件
 ├── docker-compose.yml  # 一键部署配置
+├── tests/              # 自动化测试
 └── README.md
 ```
 
@@ -167,17 +170,22 @@ service-agent/
 项目支持通过 `.env` 文件配置参数，示例见 `.env.example`。
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
-# 如果使用环境变量而非 .env，可以这样设置
-export WS_URL=ws://YOUR_SERVICE_HUB_IP:PORT/ws/agent
-export AGENT_ID=local-dev
-export TOKEN=your-secret-token
+$env:WS_URL="ws://YOUR_SERVICE_HUB_IP:PORT/ws/agent"
+$env:AGENT_ID="local-dev"
+$env:TOKEN="your-secret-token"
 
 python agent.py
 ```
 
 > **注意**：本地运行时需确保当前环境可访问 Docker socket（`/var/run/docker.sock`）。
+
+## 测试
+
+```bash
+pytest --cov=agent --cov=config --cov=core --cov=services --cov-report=term-missing --cov-fail-under=97 -q
+```
 
 ## 容器部署说明
 
