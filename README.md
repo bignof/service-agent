@@ -28,7 +28,7 @@ service-agent（容器）
 
 - 通过 WebSocket 与控制台保持长连接，自动断线重连
 - 支持 `update` 和 `restart` 两类平台命令
-- 自动检测宿主机 `docker compose`（v2 插件）或 `docker-compose`（v1 standalone），优先使用 v2
+- 统一使用 `docker compose`（v2 插件）执行 Compose 命令
 - 命令在独立线程中执行，不阻塞心跳和其他消息处理
 - 提供独立 HTTP 健康检查端点，暴露当前 WebSocket 连接状态
 
@@ -36,7 +36,7 @@ service-agent（容器）
 
 ### 前置条件
 
-- 目标服务器已安装 Docker（包含 `docker compose` 插件 **或** `docker-compose`）
+- 目标服务器已安装 Docker，并提供 `docker compose` v2 插件
 - 控制台服务已运行并开放 WebSocket 端口
 
 ### 1. 配置参数
@@ -102,10 +102,10 @@ INFO - Health server listening on http://0.0.0.0:18081/health
 
 #### 支持的 action
 
-| action    | 执行流程                                                                                                                    |
-| --------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `update`  | ① 修改 compose 文件中对应服务的 `image` 字段 → ② `docker compose pull` → ③ `docker compose down` → ④ `docker compose up -d` |
-| `restart` | `docker compose restart`                                                                                                    |
+| action    | 执行流程                                                                                                                                                                                        |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update`  | ① 找到与目标镜像同仓库的服务并更新 `image` → ② `docker compose pull` 成功后才执行切换 → ③ `docker compose down` → ④ `docker compose up -d`；若拉取或启动失败，会恢复原 compose 并尝试拉起旧版本 |
+| `restart` | `docker compose restart`                                                                                                                                                                        |
 
 ### Agent → 服务端（回复）
 
@@ -180,6 +180,7 @@ python agent.py
 ```
 
 > **注意**：本地运行时需确保当前环境可访问 Docker socket（`/var/run/docker.sock`）。
+> 如果当前环境只有 `docker-compose` v1 standalone，Agent 会直接报错并拒绝执行命令。
 
 ## 测试
 
@@ -192,6 +193,7 @@ pytest --cov=agent --cov=config --cov=core --cov=services --cov-report=term-miss
 - `docker-compose.yml` 已改为只拉取镜像，不再本地 `build`
 - 启动前需要先把 `.env.example` 复制为 `.env`，并填好 `SERVICE_AGENT_IMAGE`、`WS_URL`、`AGENT_KEY`
 - 健康检查会访问容器内的 `http://127.0.0.1:${HEALTH_PORT}/health`
+- agent 镜像内已内置 `docker compose` v2 CLI；如果宿主环境或派生镜像替换了该 CLI，需保证 `docker compose version` 可用
 - 宿主机需要正确挂载 Docker Socket 和业务 compose 根目录，否则 Agent 虽然能启动，但无法执行 compose 指令
 
 ## 安全建议

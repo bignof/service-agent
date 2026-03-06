@@ -8,7 +8,7 @@ import logging
 import os
 import subprocess
 
-from services.compose import find_compose_file, run_compose, update_image_in_compose
+from services.compose import find_compose_file, read_compose_file, restore_compose_file, run_compose, update_image_in_compose
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,18 @@ def _reply(ws, request_id, success, output, action, project_dir):
     (logger.info if success else logger.warning)(
         f"Action '{action}' {'succeeded' if success else 'failed'} in {project_dir}"
     )
+
+
+def _append_compose_restore(output_lines, compose_file):
+    output_lines.append(f"[info] Restored compose file: {compose_file}")
+
+
+def _recover_previous_compose(project_dir, compose_file, original_compose, output_lines):
+    restore_compose_file(compose_file, original_compose)
+    _append_compose_restore(output_lines, compose_file)
+    ok, out = run_compose(project_dir, ['up', '-d'])
+    output_lines.append(f"=== recovery: docker compose up -d ===\n{out}")
+    return ok
 
 
 # ─────────────────────────────────────────────
@@ -94,44 +106,53 @@ def handle_update(ws, data, request_id, project_dir):
     send_message(ws, {'type': 'ack', 'requestId': request_id, 'status': 'processing'})
 
     all_output = []
-    success = True
+    original_compose = read_compose_file(compose_file)
 
     try:
-        # 1. 修改 compose 文件中的 image 字段
         updated_services = update_image_in_compose(compose_file, image)
         if not updated_services:
-            all_output.append(f"[warn] No service matched repository of '{image}', proceeding anyway.")
-        else:
-            all_output.append(f"[info] Updated image in services: {', '.join(updated_services)}")
+            send_error(ws, request_id, f"No service image matched repository of '{image}' in {compose_file}")
+            return
 
-        # 2. docker compose pull
+        all_output.append(f"[info] Updated image in services: {', '.join(updated_services)}")
+
         ok, out = run_compose(project_dir, ['pull'])
         all_output.append(f"=== docker compose pull ===\n{out}")
         if not ok:
-            logger.warning("pull returned non-zero, continuing...")
+            restore_compose_file(compose_file, original_compose)
+            _append_compose_restore(all_output, compose_file)
+            _reply(ws, request_id, False, '\n'.join(all_output), 'update', project_dir)
+            return
 
-        # 3. docker compose down
         ok, out = run_compose(project_dir, ['down'])
         all_output.append(f"=== docker compose down ===\n{out}")
         if not ok:
-            success = False
+            recovered = _recover_previous_compose(project_dir, compose_file, original_compose, all_output)
+            if not recovered:
+                all_output.append("[error] Recovery failed after unsuccessful docker compose down.")
+            _reply(ws, request_id, False, '\n'.join(all_output), 'update', project_dir)
+            return
 
-        # 4. docker compose up -d
-        if success:
-            ok, out = run_compose(project_dir, ['up', '-d'])
-            all_output.append(f"=== docker compose up -d ===\n{out}")
-            if not ok:
-                success = False
+        ok, out = run_compose(project_dir, ['up', '-d'])
+        all_output.append(f"=== docker compose up -d ===\n{out}")
+        if not ok:
+            recovered = _recover_previous_compose(project_dir, compose_file, original_compose, all_output)
+            if not recovered:
+                all_output.append("[error] Recovery failed after unsuccessful docker compose up -d.")
+            _reply(ws, request_id, False, '\n'.join(all_output), 'update', project_dir)
+            return
 
     except subprocess.TimeoutExpired:
+        restore_compose_file(compose_file, original_compose)
         send_error(ws, request_id, "Command execution timed out (5 min)")
         return
     except Exception as e:
+        restore_compose_file(compose_file, original_compose)
         logger.exception("Execution error")
         send_error(ws, request_id, str(e))
         return
 
-    _reply(ws, request_id, success, '\n'.join(all_output), 'update', project_dir)
+    _reply(ws, request_id, True, '\n'.join(all_output), 'update', project_dir)
 
 
 def handle_restart(ws, data, request_id, project_dir):

@@ -1,14 +1,15 @@
+FROM docker:27-cli AS docker-cli
+
 # 使用较新的轻量级 Python 镜像，降低基础镜像漏洞风险
 FROM python:3.12-slim
 
 # 设置工作目录
 WORKDIR /app
 
-# 安装系统依赖。Agent 通过挂载的 Docker Socket 调用宿主机 Docker，
-# 这里安装 docker-compose 作为容器内可执行命令。
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  docker-compose \
-  && rm -rf /var/lib/apt/lists/*
+# Agent 通过挂载的 Docker Socket 调用宿主机 Docker。
+# 这里直接从官方 docker CLI 镜像复制 v2 compose 插件，避免落回 v1 standalone。
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 
 # 复制依赖文件并安装
 COPY requirements.txt .

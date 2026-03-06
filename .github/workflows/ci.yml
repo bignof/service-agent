@@ -36,3 +36,15 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t service-agent:ci .
+
+      - name: Validate docker compose v2 in image
+        run: |
+          docker run --rm service-agent:ci python - <<'PY'
+          import shutil
+          import subprocess
+
+          assert shutil.which("docker") is not None, "docker CLI is missing in service-agent image"
+          assert shutil.which("docker-compose") is None, "docker-compose v1 should not be present in service-agent image"
+          subprocess.run(["docker", "compose", "version"], check=True)
+          print("service-agent image has docker compose v2 only")
+          PY

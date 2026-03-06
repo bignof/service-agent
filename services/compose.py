@@ -1,7 +1,7 @@
 import logging
 import os
-import shutil
 import subprocess
+from pathlib import Path
 
 import yaml
 
@@ -10,8 +10,7 @@ logger = logging.getLogger(__name__)
 
 def get_compose_cmd():
     """
-    自动检测可用的 Docker Compose 命令。
-    优先使用 'docker compose'（v2 插件），其次回退到 'docker-compose'（v1 standalone）。
+    仅使用 Docker Compose v2 插件。
     """
     try:
         result = subprocess.run(['docker', 'compose', 'version'], capture_output=True, timeout=5)
@@ -21,11 +20,7 @@ def get_compose_cmd():
     except Exception:
         pass
 
-    if shutil.which('docker-compose'):
-        logger.info("Using 'docker-compose' (v1 standalone).")
-        return ['docker-compose']
-
-    raise RuntimeError("Neither 'docker compose' nor 'docker-compose' is available.")
+    raise RuntimeError("'docker compose' (v2 plugin) is required but unavailable.")
 
 
 _compose_cmd = None
@@ -42,9 +37,17 @@ def find_compose_file(project_dir):
     """按常见文件名在 project_dir 下查找 compose 文件，找不到返回 None。"""
     for name in ('docker-compose.yaml', 'docker-compose.yml'):
         path = os.path.join(project_dir, name)
-        if os.path.exists(path):
+        if os.path.isfile(path):
             return path
     return None
+
+
+def read_compose_file(compose_file):
+    return Path(compose_file).read_text(encoding='utf-8')
+
+
+def restore_compose_file(compose_file, original_content):
+    Path(compose_file).write_text(original_content, encoding='utf-8')
 
 
 def update_image_in_compose(compose_file, new_image):
@@ -52,8 +55,7 @@ def update_image_in_compose(compose_file, new_image):
     将 compose 文件中与 new_image 同仓库（忽略 tag）的服务镜像更新为 new_image。
     返回被更新的服务名列表。
     """
-    with open(compose_file, 'r') as f:
-        content = yaml.safe_load(f)
+    content = yaml.safe_load(read_compose_file(compose_file)) or {}
 
     new_repo = new_image.rsplit(':', 1)[0]
     updated = []
@@ -68,8 +70,8 @@ def update_image_in_compose(compose_file, new_image):
             logger.info(f"Updated service '{svc_name}': {current_image} -> {new_image}")
 
     if updated:
-        with open(compose_file, 'w') as f:
-            yaml.dump(content, f, default_flow_style=False, allow_unicode=True)
+        with open(compose_file, 'w', encoding='utf-8', newline='\n') as f:
+            yaml.safe_dump(content, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
     return updated
 
