@@ -27,8 +27,8 @@ jobs:
 
       - name: Set timestamp tag
         run: |
-          # UTC timestamp compact format YYYYMMDD-HHMMSS
-          echo "TS=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+          # China Standard Time timestamp in compact format YYYYMMDD-HHMMSS
+          echo "TS=$(TZ='Asia/Shanghai' date +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
           echo "BRANCH=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
 
       - name: Build and push
